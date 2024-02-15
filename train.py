@@ -28,6 +28,9 @@ image_dir = "./generated_images"
 os.makedirs(image_dir, exist_ok=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# Before saving the model, ensure the ./models directory exists
+models_dir = "./models"
+os.makedirs(models_dir, exist_ok=True)  # This creates the directory if it does not exist
 
 if args.dataset == "mnist":
     IMAGE_SIZE = 32
@@ -76,11 +79,13 @@ optimizer_d = torch.optim.Adam(
 fixed_noise = torch.randn(64, 100, 1, 1, device=device)  # 64 is the number of images to generate
 
 if __name__ == "__main__":
+    print("Starting Training...")
     # One-sided label smoothing
     pos_labels = torch.full((64, 1), args.alpha, device=device)
     neg_labels = torch.zeros((64, 1), device=device)
 
     for epoch in range(args.epochs):
+        print(f"Epoch {epoch+1}/{args.epochs} started...")
         losses_d, losses_g = [], []
         for i, data in enumerate(dataloader):
             images, labels = next(iter(dataloader))
@@ -129,6 +134,20 @@ if __name__ == "__main__":
             loss_d = loss_d_geunine + loss_d_fake
             losses_d.append(loss_d.item())
             losses_g.append(loss_g.item())
+            print(f"Epoch {epoch+1}/{args.epochs} completed. Saving models...")
+                        # Print summary of losses or other metrics
+            avg_loss_d = sum(losses_d) / len(losses_d)
+            avg_loss_g = sum(losses_g) / len(losses_g)
+            print(f"Epoch {epoch+1} Summary: Avg Loss D: {avg_loss_d:.4f}, Avg Loss G: {avg_loss_g:.4f}")
+
+        print("Training completed. Saving generated images...")
+
+    with torch.no_grad():
+        fake_images = G(fixed_noise).detach().cpu()
+        # Save the images
+        img_list = []
+        img_list.append(vutils.make_grid(fake_images, padding=2, normalize=True))
+        vutils.save_image(fake_images, f"{image_dir}/fake_images_epoch_{args.epochs}.png", normalize=True)
 
     # Save generator model
     torch.save(G.state_dict(), "./models/g%d.pt" % args.epochs)
@@ -138,9 +157,3 @@ if __name__ == "__main__":
         pickle.dump(losses_g, g)
     with open("./metrics/loss_d%d.pkl" % args.epochs, "wb") as d:
         pickle.dump(losses_d, d)
-    with torch.no_grad():
-        fake_images = G(fixed_noise).detach().cpu()
-        # Save the images
-        img_list = []
-        img_list.append(vutils.make_grid(fake_images, padding=2, normalize=True))
-        vutils.save_image(fake_images, f"{image_dir}/fake_images_epoch_{args.epochs}.png", normalize=True)
