@@ -5,6 +5,7 @@ import torchvision
 import torchvision.transforms as T
 from dcgan import Generator
 
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--epochs", "-e", type=int, default=10)
 parser.add_argument("--num-noises", "-nn", type=int, default=100)

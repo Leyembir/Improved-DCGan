@@ -3,6 +3,7 @@ import pickle
 import torch
 import torchvision
 import torchvision.transforms as T
+from torch.utils.tensorboard import SummaryWriter
 from dcgan import Generator, Discriminator
 
 parser = argparse.ArgumentParser("Hyperparameters and Dataset Arguments")
@@ -25,7 +26,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 if args.dataset == "mnist":
     IMAGE_SIZE = 32
-    NUM_COLORS = 1
+    NUM_COLORS = 3
     data = torchvision.datasets.ImageFolder(root="art_dataset", transform = T.Compose([
         T.Resize(IMAGE_SIZE),  # Resize the shortest side to IMAGE_SIZE
         T.CenterCrop(IMAGE_SIZE),  # Crop the center IMAGE_SIZE x IMAGE_SIZE
@@ -36,17 +37,17 @@ if args.dataset == "mnist":
     
     dataloader = torch.utils.data.DataLoader(
         data,
-        batch_size=192,
+        batch_size=64,
         shuffle=True,
-        num_workers=args.workers,
-        drop_last=True
+        num_workers=4,
+        drop_last=True,
     )
 else:
     raise Exception("Not a valid dataset")
 
 G = Generator(args.num_noises, NUM_COLORS, args.depths, IMAGE_SIZE).to(device)
 D = Discriminator(NUM_COLORS, args.depths, IMAGE_SIZE).to(device)
-
+writer = SummaryWriter(f"logs/GAN_Training")
 def init_weight(model):
     classname = model.__class__.__name__
     if classname.find('conv') != -1:
@@ -70,12 +71,13 @@ optimizer_d = torch.optim.Adam(
 
 if __name__ == "__main__":
     # One-sided label smoothing
-    pos_labels = torch.full((args.batch_size, 1), args.alpha, device=device)
-    neg_labels = torch.zeros((args.batch_size, 1), device=device)
+    pos_labels = torch.full((64, 1), args.alpha, device=device)
+    neg_labels = torch.zeros((64, 1), device=device)
 
     for epoch in range(args.epochs):
         losses_d, losses_g = [], []
         for i, data in enumerate(dataloader):
+            images, labels = next(iter(dataloader))
             # Train D with genuine data
             genuine = data[0].to(device) # Drop label data
             genuine = genuine.reshape(-1, NUM_COLORS, IMAGE_SIZE, IMAGE_SIZE)
@@ -83,7 +85,6 @@ if __name__ == "__main__":
             optimizer_d.zero_grad()
 
             output = D(genuine)
-            
             loss_d_geunine = criterion_d(output, pos_labels)
             loss_d_geunine.backward()
 
@@ -123,6 +124,21 @@ if __name__ == "__main__":
             losses_d.append(loss_d.item())
             losses_g.append(loss_g.item())
 
+             # Log discriminator and generator loss for each batch
+            writer.add_scalar("Loss/Discriminator", loss_d.item(), epoch * len(dataloader) + i)
+            writer.add_scalar("Loss/Generator", loss_g.item(), epoch * len(dataloader) + i)
+            # Optionally, log images every few batches or epochs
+            if i % args.report == 0:
+                with torch.no_grad():
+                    # Generate a batch of images
+                    fixed_noise = torch.randn(64, 100, device=device)
+                    fake_images = G(fixed_noise)
+
+                    # Make a grid and log it; normalize to [0,1]
+                    img_grid = torchvision.utils.make_grid(fake_images, normalize=True)
+                    writer.add_image("Generated Images", img_grid, epoch * len(dataloader) + i)
+            
+
     # Save generator model
     torch.save(G.state_dict(), "./models/g%d.pt" % args.epochs)
 
@@ -131,3 +147,4 @@ if __name__ == "__main__":
         pickle.dump(losses_g, g)
     with open("./metrics/loss_d%d.pkl" % args.epochs, "wb") as d:
         pickle.dump(losses_d, d)
+writer.close()
