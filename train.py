@@ -73,7 +73,7 @@ optimizer_d = torch.optim.Adam(
     lr=args.learning_rate,
     betas=[args.beta_1, args.beta_2]
 )
-fixed_noise = torch.randn(64, args.num_noises, 1, 1, device=device)  # Fixed noise vector
+fixed_noise = torch.randn(64, 100, 1, 1, device=device)  # 64 is the number of images to generate
 
 if __name__ == "__main__":
     # One-sided label smoothing
@@ -120,13 +120,7 @@ if __name__ == "__main__":
                 loss_g.backward()
 
             optimizer_g.step()
-
-            with torch.no_grad():
-                fake_images = G(fixed_noise)
     
-            # Save the generated images
-            file_name = os.path.join(image_dir, f"epoch_{epoch+1:04d}.png")
-            vutils.save_image(fake_images, file_name, normalize=True)
             # Report & record loss
             if i % args.report == args.report-1:
                 print("[%d/%d][%d/%d] D:%.7f G:%.7f" %
@@ -144,3 +138,9 @@ if __name__ == "__main__":
         pickle.dump(losses_g, g)
     with open("./metrics/loss_d%d.pkl" % args.epochs, "wb") as d:
         pickle.dump(losses_d, d)
+    with torch.no_grad():
+        fake_images = G(fixed_noise).detach().cpu()
+        # Save the images
+        img_list = []
+        img_list.append(vutils.make_grid(fake_images, padding=2, normalize=True))
+        vutils.save_image(fake_images, f"{image_dir}/fake_images_epoch_{args.epochs}.png", normalize=True)
