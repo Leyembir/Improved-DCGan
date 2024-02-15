@@ -1,9 +1,11 @@
 import argparse
+import os
 import pickle
 import torch
 import torchvision
 import torchvision.transforms as T
-from torch.utils.tensorboard import SummaryWriter
+import torchvision.utils as vutils
+
 from dcgan import Generator, Discriminator
 
 parser = argparse.ArgumentParser("Hyperparameters and Dataset Arguments")
@@ -21,6 +23,9 @@ parser.add_argument("--workers", "-w", type=int, default=4)
 # If feature matching is not used, minibatch discrimination is used instead
 parser.add_argument("--feature-matching", "-fm", type=bool, default=False)
 args = parser.parse_args()
+
+image_dir = "./generated_images"
+os.makedirs(image_dir, exist_ok=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -47,7 +52,7 @@ else:
 
 G = Generator(args.num_noises, NUM_COLORS, args.depths, IMAGE_SIZE).to(device)
 D = Discriminator(NUM_COLORS, args.depths, IMAGE_SIZE).to(device)
-writer = SummaryWriter(f"logs/GAN_Training")
+
 def init_weight(model):
     classname = model.__class__.__name__
     if classname.find('conv') != -1:
@@ -68,6 +73,7 @@ optimizer_d = torch.optim.Adam(
     lr=args.learning_rate,
     betas=[args.beta_1, args.beta_2]
 )
+fixed_noise = torch.randn(64, args.num_noises, 1, 1, device=device)  # Fixed noise vector
 
 if __name__ == "__main__":
     # One-sided label smoothing
@@ -115,6 +121,12 @@ if __name__ == "__main__":
 
             optimizer_g.step()
 
+            with torch.no_grad():
+                fake_images = G(fixed_noise)
+    
+            # Save the generated images
+            file_name = os.path.join(image_dir, f"epoch_{epoch+1:04d}.png")
+            vutils.save_image(fake_images, file_name, normalize=True)
             # Report & record loss
             if i % args.report == args.report-1:
                 print("[%d/%d][%d/%d] D:%.7f G:%.7f" %
@@ -124,21 +136,6 @@ if __name__ == "__main__":
             losses_d.append(loss_d.item())
             losses_g.append(loss_g.item())
 
-             # Log discriminator and generator loss for each batch
-            writer.add_scalar("Loss/Discriminator", loss_d.item(), epoch * len(dataloader) + i)
-            writer.add_scalar("Loss/Generator", loss_g.item(), epoch * len(dataloader) + i)
-            # Optionally, log images every few batches or epochs
-            if i % args.report == 0:
-                with torch.no_grad():
-                    # Generate a batch of images
-                    fixed_noise = torch.randn(64, 100, device=device)
-                    fake_images = G(fixed_noise)
-
-                    # Make a grid and log it; normalize to [0,1]
-                    img_grid = torchvision.utils.make_grid(fake_images, normalize=True)
-                    writer.add_image("Generated Images", img_grid, epoch * len(dataloader) + i)
-            
-
     # Save generator model
     torch.save(G.state_dict(), "./models/g%d.pt" % args.epochs)
 
@@ -147,4 +144,3 @@ if __name__ == "__main__":
         pickle.dump(losses_g, g)
     with open("./metrics/loss_d%d.pkl" % args.epochs, "wb") as d:
         pickle.dump(losses_d, d)
-writer.close()
